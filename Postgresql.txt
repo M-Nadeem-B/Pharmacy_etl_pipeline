@@ -1,0 +1,148 @@
+
+-- 1. MED_DETAIL TABLE
+CREATE TABLE med_detail (
+    medication_id INT PRIMARY KEY, 
+    gtin VARCHAR(14) UNIQUE NOT NULL, -- FIXED: GTIN-14 can start with 0; VARCHAR preserves this
+    brand_name VARCHAR(255) NOT NULL,
+    generic_name VARCHAR(255) NOT NULL, 
+    strength VARCHAR(255),
+    dosage_form VARCHAR(255), 
+    unit_cost DECIMAL(10,2) 
+);
+
+-- 2. SUPPLIER TABLE
+CREATE TABLE supplier (
+    supplier_id INT PRIMARY KEY,
+    supplier_name VARCHAR(255) NOT NULL,
+    average_lead_time_day INT, 
+    reliability_score INT CHECK (reliability_score <= 100) -- Added a safety check for scores
+);
+
+-- 3. INVENTORY TABLE
+CREATE TABLE inventory (
+    inventory_id INT PRIMARY KEY,
+    med_id INT REFERENCES med_detail(medication_id) ON DELETE RESTRICT, -- PROTECTS DATA
+    quantity_in_hand INT NOT NULL,
+    reorder_point INT NOT NULL,
+    safety_stock_level INT NOT NULL,
+    last_count_date DATE DEFAULT CURRENT_DATE
+);
+
+-- 4. PRESCRIPTION TABLE 
+CREATE TABLE prescription (
+    rx_id INT PRIMARY KEY,
+    med_id INT REFERENCES med_detail(medication_id) ON DELETE RESTRICT, -- PROTECTS AUDIT TRAIL
+    quantity_dispensed INT NOT NULL,
+    date_filled TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    patient_id INT UNIQUE NOT NULL
+);
+
+-- 5. PURCHASE_ORDER TABLE 
+CREATE TABLE purchase_order (
+    po_id INT PRIMARY KEY,
+    med_id INT REFERENCES med_detail(medication_id) ON DELETE RESTRICT,
+    supp_id INT REFERENCES supplier(supplier_id) ON DELETE RESTRICT,
+    order_quantity INT NOT NULL,
+    status VARCHAR(50) -- e.g., 'Pending', 'Received', 'Shipped'
+);
+
+-- 6. Create the Batch Table
+CREATE TABLE stock_batches (
+    batch_id SERIAL PRIMARY KEY,
+    med_id INT REFERENCES med_detail(medication_id) ON DELETE RESTRICT,
+    batch_no VARCHAR(100) NOT NULL,
+    expiry_date DATE NOT NULL,
+    quantity_received INT NOT NULL,
+    current_quantity INT NOT NULL CHECK (current_quantity >= 0),
+    unit_cost_at_purchase DECIMAL(10,2), -- Tracks price variation per batch
+    received_date DATE DEFAULT CURRENT_DATE,
+    UNIQUE(med_id, batch_no) -- Prevents duplicate batch entries for the same drug
+);
+
+SELECT 
+    m.brand_name,
+    b.batch_no,
+    b.expiry_date,
+    b.current_quantity,
+    (b.expiry_date - CURRENT_DATE) AS days_until_expiry
+FROM med_detail m
+JOIN stock_batches b ON m.medication_id = b.med_id
+WHERE b.current_quantity > 0 
+  AND b.expiry_date <= CURRENT_DATE + INTERVAL '6 months'
+ORDER BY b.expiry_date ASC;
+
+ALTER TABLE inventory  
+ADD COLUMN batch_no VARCHAR(255) NOT NULL DEFAULT 'UNKNOWN',
+ADD COLUMN expiry_date DATE DEFAULT CURRENT_DATE;
+
+
+COPY med_detail FROM 'D:\Nadeem\Portfolio\ETL pipeline\stg_med_detail.csv' DELIMITER ',' CSV HEADER;
+COPY prescription FROM 'D:\Nadeem\Portfolio\ETL pipeline\stg_prescription.csv' DELIMITER ',' CSV HEADER;
+
+
+CREATE OR REPLACE FUNCTION update_inventory_total()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Check if the medication already exists in the inventory table
+    IF NOT EXISTS (SELECT 1 FROM inventory WHERE med_id = NEW.med_id) THEN
+        INSERT INTO inventory (inventory_id, med_id, quantity_in_hand, reorder_point, safety_stock_level)
+        VALUES (NEW.med_id, NEW.med_id, NEW.current_quantity, 100, 20); -- Default reorder/safety levels
+    ELSE
+        -- If it exists, update it as usual
+        UPDATE inventory
+        SET quantity_in_hand = (
+            SELECT COALESCE(SUM(current_quantity), 0)
+            FROM stock_batches
+            WHERE med_id = NEW.med_id
+        ),
+        last_count_date = CURRENT_DATE
+        WHERE med_id = NEW.med_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE TRIGGER trg_update_inventory_on_batch_change
+AFTER INSERT OR UPDATE OR DELETE ON stock_batches
+FOR EACH ROW
+EXECUTE FUNCTION update_inventory_total();
+
+
+INSERT INTO inventory (inventory_id, med_id, quantity_in_hand, reorder_point, safety_stock_level)
+VALUES (1, 1, 0, 50, 20)
+ON CONFLICT (inventory_id) DO NOTHING;
+
+
+INSERT INTO stock_batches (med_id, batch_no, expiry_date, quantity_received, current_quantity, unit_cost_at_purchase)
+VALUES (1, 'B123-PAK', '2027-12-01', 500, 500, 18.50);
+
+INSERT INTO inventory (inventory_id, med_id, quantity_in_hand, reorder_point, safety_stock_level)
+SELECT 
+    m.medication_id, -- Fixed: Explicitly choosing from med_detail
+    m.medication_id, -- Fixed: Explicitly choosing from med_detail
+    0, 
+    100, 
+    20
+FROM med_detail m
+ON CONFLICT (inventory_id) DO NOTHING;
+
+
+SELECT 
+    m.brand_name,
+    i.quantity_in_hand,
+    i.reorder_point,
+    CASE 
+        WHEN i.quantity_in_hand <= i.reorder_point THEN '+ REORDER'
+        ELSE '- OK'
+    END AS supply_status
+FROM med_detail m
+JOIN inventory i ON m.medication_id = i.med_id
+ORDER BY i.quantity_in_hand ASC;
+
+CREATE INDEX idx_stock_batches_med_id ON stock_batches(med_id);
+CREATE INDEX idx_prescription_med_id ON prescription(med_id);
+
+ALTER TABLE med_detail 
+ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE;
