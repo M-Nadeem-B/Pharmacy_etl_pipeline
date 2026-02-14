@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pharmacy ETL Portfolio | Nadeem</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: auto; padding: 20px; }
+        header { background: #2c3e50; color: white; padding: 1rem; text-align: center; border-radius: 8px; }
+        h2 { border-bottom: 2px solid #2c3e50; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f4f4f4; }
+        .status-ok { color: green; font-weight: bold; }
+        .status-reorder { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Pharmacy Supply Chain Optimizer</h1>
+        <p>A Data Engineering Project by Muhammad Nadeem</p>
+    </header>
+
+    <section>
+        <h2>Project Overview</h2>
+        <p>This project automates pharmacy inventory management using <strong>PostgreSQL Triggers</strong> and <strong>Python ETL</strong>. It ensures 100% data integrity between stock batches and master inventory totals.</p>
+    </section>
+
+    <section>
+        <h2>Live Inventory Status (Sample)</h2>
+        <table>
+            <tr>
+                <th>Brand Name</th>
+                <th>Total Stock</th>
+                <th>Status</th>
+            </tr>
+            <tr>
+                <td>Risek 40mg</td>
+                <td>500</td>
+                <td class="status-ok">🟢 OK</td>
+            </tr>
+            <tr>
+                <td>Panadol</td>
+                <td>0</td>
+                <td class="status-reorder">🔴 REORDER</td>
+            </tr>
+        </table>
+    </section>
+
+    <footer>
+        <p>View the full source code on <a href="https://github.com/M-Nadeem-B/Pharmacy_etl_pipeline">GitHub</a></p>
+    </footer>
+</body>
+</html>
